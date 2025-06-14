@@ -1,0 +1,37 @@
+[project]
+name = "macosprox"
+version = "0.1.0"
+description = "VM Creator MVP using Apple's Virtualization Framework"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "click>=8.2.1",
+    "pyobjc-framework-cocoa>=11.0",
+    "pyobjc-framework-virtualization>=11.0",
+    "rich>=14.0.0",
+]
+
+[project.scripts]
+macosprox = "macosprox.main:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/macosprox"
+Repository = "https://github.com/yourusername/macosprox"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/macosprox"]
