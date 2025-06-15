@@ -19,9 +19,9 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && github.event.issue.user.login == 'eginez')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: read
-      issues: read
+      contents: read
+      pull-requests: write
+      issues: write
       id-token: write
     steps:
       - name: Checkout repository
@@ -52,12 +52,6 @@ jobs:
             Bash(uv run mypy src/),
             Bash(uv run python -m pytest*),
             Bash(uv run macosprox*),
-            Bash(python -c*),
-            Bash(python3 -c*),
-            Bash(uv run python -c*),
-            Bash(pip install*),
-            Bash(uv add*),
-            Bash(uv remove*),
             Bash(git status),
             Bash(git diff*),
             Bash(git add*),
