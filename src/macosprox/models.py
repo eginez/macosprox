@@ -72,6 +72,8 @@ class VMCreateRequest(BaseModel):
     memory_size_gb: int = Field(4, gt=0, le=128, description="Memory size in GB")
     disk_size_gb: int = Field(20, gt=0, le=1000, description="Disk size in GB")
     iso_path: Optional[str] = Field(None, description="Path to Linux ISO file")
+    ssh_key: Optional[str] = Field(None, description="SSH public key content")
+    auto_install: bool = Field(False, description="Create cloud-init ISO for auto-installation")
     
     def validate_iso_path(self) -> None:
         """Validate that ISO path exists if provided"""

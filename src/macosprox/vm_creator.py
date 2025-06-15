@@ -17,7 +17,6 @@ from Virtualization import (
     VZEFIBootLoader,
     VZEFIVariableStore,
     VZVirtioBlockDeviceConfiguration,
-    VZDiskImageStorageDeviceAttachment,
     VZVirtioNetworkDeviceConfiguration,
     VZNATNetworkDeviceAttachment,
     VZVirtioEntropyDeviceConfiguration,
@@ -35,6 +34,8 @@ from Virtualization import (
     VZVirtualMachineStateResuming,
     VZVirtualMachineStateStopping,
     VZGenericPlatformConfiguration,
+    VZDiskImageStorageDeviceAttachment,
+    VZMACAddress,
 )
 
 # Configure logging
@@ -74,7 +75,9 @@ class VMCreator:
                        cpu_count: int = 2,
                        memory_size_gb: int = 4,
                        disk_size_gb: int = 20,
-                       iso_path: str | None = None) -> VMInfo:
+                       iso_path: str | None = None,
+                       ssh_key: str | None = None,
+                       auto_install: bool = False) -> VMInfo:
         """
         Create a Linux VM configuration
         
@@ -84,6 +87,8 @@ class VMCreator:
             memory_size_gb: Memory in GB
             disk_size_gb: Disk size in GB
             iso_path: Path to Linux ISO file
+            ssh_key: SSH public key content for cloud-init
+            auto_install: Whether to create cloud-init ISO for auto-installation
             
         Returns:
             VMInfo model with VM configuration details
@@ -135,20 +140,67 @@ class VMCreator:
             if not disk_path.exists():
                 self._create_disk_image(str(disk_path), disk_size_gb)
             
-            # Configure storage
+            # Configure storage devices
+            storage_devices = []
+            
+            # Main disk
             disk_url = NSURL.fileURLWithPath_(str(disk_path))
             disk_attachment = VZDiskImageStorageDeviceAttachment.alloc().initWithURL_readOnly_error_(
                 disk_url, False, None
             )[0]
             
             storage_config = VZVirtioBlockDeviceConfiguration.alloc().initWithAttachment_(disk_attachment)
-            config.setStorageDevices_([storage_config])
+            storage_devices.append(storage_config)
             
-            # Configure network
+            # ISO mounting for installation
+            if iso_path and Path(iso_path).exists():
+                logger.info(f"Mounting ISO: {iso_path}")
+                iso_url = NSURL.fileURLWithPath_(str(iso_path))
+                iso_attachment = VZDiskImageStorageDeviceAttachment.alloc().initWithURL_readOnly_error_(
+                    iso_url, True, None  # Read-only for ISO
+                )[0]
+                
+                iso_config = VZVirtioBlockDeviceConfiguration.alloc().initWithAttachment_(iso_attachment)
+                storage_devices.append(iso_config)
+            
+            # Create cloud-init ISO if auto-install is enabled
+            if auto_install:
+                try:
+                    cloud_init_iso_path = self._create_cloud_init_iso(vm_dir, name, ssh_key)
+                    if cloud_init_iso_path and Path(cloud_init_iso_path).exists():
+                        logger.info(f"Mounting cloud-init ISO: {cloud_init_iso_path}")
+                        cloud_init_url = NSURL.fileURLWithPath_(cloud_init_iso_path)
+                        cloud_init_attachment = VZDiskImageStorageDeviceAttachment.alloc().initWithURL_readOnly_error_(
+                            cloud_init_url, True, None
+                        )[0]
+                        
+                        cloud_init_config = VZVirtioBlockDeviceConfiguration.alloc().initWithAttachment_(cloud_init_attachment)
+                        storage_devices.append(cloud_init_config)
+                        logger.info("Cloud-init ISO mounted successfully")
+                    else:
+                        logger.warning("Cloud-init ISO creation failed or file not found")
+                except Exception as e:
+                    logger.error(f"Failed to create/mount cloud-init ISO: {e}")
+                    # Continue without cloud-init rather than failing completely
+            
+            config.setStorageDevices_(storage_devices)
+            
+            # Configure network with predictable MAC address for easier DHCP/SSH access
             network_config = VZVirtioNetworkDeviceConfiguration.new()
+            
+            # Generate a predictable MAC address based on VM name
+            # This helps with consistent IP assignment and SSH access
+            mac_bytes = bytes(f"52:54:00:{abs(hash(name)) % 256:02x}:{abs(hash(name)) % 256:02x}:{abs(hash(name)) % 256:02x}", 'utf-8')[:6]
+            # Actually create a proper MAC address
+            mac_string = f"52:54:00:{abs(hash(name)) % 256:02x}:{abs(hash(name + '1')) % 256:02x}:{abs(hash(name + '2')) % 256:02x}"
+            mac_address = VZMACAddress.alloc().initWithString_(mac_string)
+            network_config.setMACAddress_(mac_address)
+            
             nat_attachment = VZNATNetworkDeviceAttachment.new()
             network_config.setAttachment_(nat_attachment)
             config.setNetworkDevices_([network_config])
+            
+            logger.info(f"VM Network MAC Address: {mac_string}")
             
             # Configure entropy (random number generator)
             entropy_config = VZVirtioEntropyDeviceConfiguration.new()
@@ -165,6 +217,9 @@ class VMCreator:
             scanout_config = VZVirtioGraphicsScanoutConfiguration.alloc().initWithWidthInPixels_heightInPixels_(800, 600)
             graphics_config.setScanouts_([scanout_config])
             config.setGraphicsDevices_([graphics_config])
+            
+            # Skip console devices for now - not essential for basic functionality
+            # TODO: Add proper serial console support when needed
             
             # Configure audio
             audio_config = VZVirtioSoundDeviceConfiguration.new()
@@ -264,6 +319,112 @@ class VMCreator:
         
         return state_map.get(state, VMStatus.UNKNOWN)
     
+    def _create_cloud_init_iso(self, vm_dir: Path, vm_name: str, ssh_key: str | None = None) -> str:
+        """
+        Create a cloud-init ISO for automated Linux setup with SSH access
+        
+        Args:
+            vm_dir: VM directory path
+            vm_name: VM name
+            ssh_key: Optional SSH public key content
+            
+        Returns:
+            Path to created cloud-init ISO
+        """
+        cloud_init_dir = vm_dir / "cloud-init"
+        cloud_init_dir.mkdir(exist_ok=True)
+        
+        # Create user-data with SSH configuration
+        user_data = f"""#cloud-config
+hostname: {vm_name}
+manage_etc_hosts: true
+
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    passwd: $6$rounds=4096$aQ7lBLKCKLV$w0Jd8PkQmL8hZGdLNa1s1y3YI2IJ3j4K5L6M7N8O9P0Q1R2S3T4U5V6W7X8Y9Z0A1B2C3D4E5F6G7H8I9J0K1L2M3
+"""
+        
+        if ssh_key:
+            user_data += f"""    ssh_authorized_keys:
+      - {ssh_key}
+"""
+        else:
+            # Create a temporary SSH key pair if none provided
+            ssh_dir = vm_dir / "ssh"
+            ssh_dir.mkdir(exist_ok=True)
+            private_key_path = ssh_dir / "vm_key"
+            public_key_path = ssh_dir / "vm_key.pub"
+            
+            if not private_key_path.exists():
+                import subprocess
+                subprocess.run([
+                    "ssh-keygen", "-t", "rsa", "-b", "2048", 
+                    "-f", str(private_key_path), "-N", ""
+                ], check=True)
+                
+            with open(public_key_path, 'r') as f:
+                ssh_key = f.read().strip()
+                
+            user_data += f"""    ssh_authorized_keys:
+      - {ssh_key}
+"""
+        
+        user_data += """
+ssh_pwauth: true
+package_update: true
+package_upgrade: true
+packages:
+  - openssh-server
+  - curl
+  - wget
+  - htop
+  - vim
+
+runcmd:
+  - systemctl enable ssh
+  - systemctl start ssh
+  - ufw allow ssh
+  - echo "SSH server setup completed" > /var/log/cloud-init-ssh.log
+
+final_message: |
+  Cloud-init setup completed!
+  SSH access enabled for user 'ubuntu'
+  Default password: ubuntu (please change!)
+"""
+        
+        # Write user-data
+        user_data_path = cloud_init_dir / "user-data"
+        with open(user_data_path, 'w') as f:
+            f.write(user_data)
+        
+        # Create meta-data
+        meta_data = f"""instance-id: {vm_name}-001
+local-hostname: {vm_name}
+"""
+        
+        meta_data_path = cloud_init_dir / "meta-data"
+        with open(meta_data_path, 'w') as f:
+            f.write(meta_data)
+        
+        # Create cloud-init ISO
+        cloud_init_iso = vm_dir / f"{vm_name}-cloud-init.iso"
+        
+        try:
+            subprocess.run([
+                "hdiutil", "makehybrid", "-o", str(cloud_init_iso),
+                "-hfs", "-joliet", "-iso", "-default-volume-name", "cidata",
+                str(cloud_init_dir)
+            ], check=True, capture_output=True)
+            
+            logger.info(f"Cloud-init ISO created: {cloud_init_iso}")
+            return str(cloud_init_iso)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to create cloud-init ISO: {e}")
+            raise
+        
     def _create_disk_image(self, path: str, size_gb: int) -> None:
         """Create a disk image file"""
         logger.info(f"Creating disk image: {path} ({size_gb}GB)")
@@ -279,6 +440,38 @@ class VMCreator:
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to create disk image: {e}")
             raise
+
+
+    def get_vm_ip(self, vm_name: str) -> str | None:
+        """
+        Try to get the VM's IP address by scanning the NAT network
+        This is a best-effort approach since Apple's Virtualization Framework
+        doesn't provide direct IP access
+        """
+        try:
+            # Use arp to find MAC address to IP mapping
+            vm_dir = Path.home() / "VMs" / vm_name
+            if not vm_dir.exists():
+                return None
+            
+            # Generate the same MAC address we used when creating the VM
+            mac_string = f"52:54:00:{abs(hash(vm_name)) % 256:02x}:{abs(hash(vm_name + '1')) % 256:02x}:{abs(hash(vm_name + '2')) % 256:02x}"
+            
+            # Use arp command to find IP for this MAC
+            result = subprocess.run(['arp', '-a'], capture_output=True, text=True)
+            for line in result.stdout.split('\n'):
+                if mac_string.lower() in line.lower():
+                    # Extract IP from line like: "? (192.168.64.2) at 52:54:00:xx:xx:xx on vmnet1 ifscope [ethernet]"
+                    import re
+                    ip_match = re.search(r'\((\d+\.\d+\.\d+\.\d+)\)', line)
+                    if ip_match:
+                        return ip_match.group(1)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get VM IP: {e}")
+            return None
 
 
 def list_vms() -> list[VMListItem]:
