@@ -104,6 +104,7 @@ uv pip install -e .
 
 # To run checks
 uv run ruff check  
+uv run mypy src/
 
 # To fix automatically 
 uv run ruff --fix
@@ -112,10 +113,7 @@ uv run ruff --fix
 ### Running the CLI
 ```bash
 # Run the CLI directly
-uv run python -m macosprox.main
-
-# Or if installed
-macosprox
+uv run macosprox --help
 ```
 
 ### Key CLI Commands
