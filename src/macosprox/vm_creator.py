@@ -527,19 +527,22 @@ def check_virtualization_support() -> VirtualizationSupport:
             supported=True,
             framework_available=True,
             pyobjc_version=objc.__version__,
-            message="Virtualization framework is available"
+            message="Virtualization framework is available",
+            error=None
         )
     except ImportError as e:
         return VirtualizationSupport(
             supported=False,
             framework_available=False,
             error=str(e),
-            message="Virtualization framework not available"
+            message="Virtualization framework not available",
+            pyobjc_version=None
         )
     except Exception as e:
         return VirtualizationSupport(
             supported=False,
             framework_available=True,
             error=str(e),
-            message="Error checking virtualization support"
+            message="Error checking virtualization support",
+            pyobjc_version=None
         )

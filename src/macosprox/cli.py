@@ -116,15 +116,15 @@ def create(name: str, cpu: int, memory: int, disk: int, iso: str | None, ssh_key
         sys.exit(1)
 
 
-@cli.command()
-def list() -> None:
+@cli.command("list")
+def list_vms_command() -> None:
     """List all VMs"""
     
     console.print("\n[bold blue]Listing VMs...[/bold blue]")
     
-    vms: list[VMListItem] = list_vms()
+    vm_list: list[VMListItem] = list_vms()
     
-    if not vms:
+    if not vm_list:
         console.print("[yellow]No VMs found.[/yellow]")
         console.print("[dim]Create your first VM with: macosprox create --name my-vm[/dim]")
         return
@@ -134,7 +134,7 @@ def list() -> None:
     table.add_column("Path", style="dim")
     table.add_column("Status", style="green")
     
-    for vm in vms:
+    for vm in vm_list:
         table.add_row(
             vm.name,
             vm.path,
@@ -146,14 +146,14 @@ def list() -> None:
 
 @cli.command()
 @click.argument("vm_name")
-def start(vm_name):
+def start(vm_name: str) -> None:
     """Start a VM"""
     
     console.print(f"\n[bold blue]Starting VM: {vm_name}[/bold blue]")
     
     # Check if VM exists
-    vms = list_vms()
-    vm_exists = any(vm.name == vm_name for vm in vms)
+    vm_list = list_vms()
+    vm_exists = any(vm.name == vm_name for vm in vm_list)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
@@ -230,8 +230,8 @@ def status(vm_name: str) -> None:
     console.print(f"\n[bold blue]VM Status: {vm_name}[/bold blue]")
     
     # Check if VM exists
-    vms: list[VMListItem] = list_vms()
-    vm_exists: bool = any(vm.name == vm_name for vm in vms)
+    vm_list: list[VMListItem] = list_vms()
+    vm_exists: bool = any(vm.name == vm_name for vm in vm_list)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
@@ -285,8 +285,8 @@ def delete(vm_name: str, force: bool) -> None:
     console.print(f"\n[bold red]Deleting VM: {vm_name}[/bold red]")
     
     # Check if VM exists
-    vms: list[VMListItem] = list_vms()
-    vm_exists: bool = any(vm.name == vm_name for vm in vms)
+    vm_list: list[VMListItem] = list_vms()
+    vm_exists: bool = any(vm.name == vm_name for vm in vm_list)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
@@ -365,8 +365,8 @@ def ssh(vm_name: str, user: str, key: str | None) -> None:
     console.print(f"\n[bold blue]Connecting to VM: {vm_name}[/bold blue]")
     
     # Check if VM exists
-    vms: list[VMListItem] = list_vms()
-    vm_exists: bool = any(vm.name == vm_name for vm in vms)
+    vm_list: list[VMListItem] = list_vms()
+    vm_exists: bool = any(vm.name == vm_name for vm in vm_list)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
