@@ -43,13 +43,13 @@ The VM creation process follows this pattern:
 uv sync
 
 # Install in development mode
-pip install -e .
+uv pip install -e .
 ```
 
 ### Running the CLI
 ```bash
 # Run the CLI directly
-python -m macosprox.main
+uv run python -m macosprox.main
 
 # Or if installed
 macosprox
@@ -58,23 +58,23 @@ macosprox
 ### Key CLI Commands
 ```bash
 # Check virtualization support
-macosprox check
+uv run macosprox check
 
 # Create a new VM
-macosprox create --name test-vm --cpu 2 --memory 4 --disk 20
+uv run macosprox create --name test-vm --cpu 2 --memory 4 --disk 20
 
 # List VMs
-macosprox list
+uv run macosprox list
 
 # Start/stop VMs
-macosprox start vm-name
-macosprox stop vm-name
+uv run macosprox start vm-name
+uv run macosprox stop vm-name
 
 # Check VM status
-macosprox status vm-name
+uv run macosprox status vm-name
 
 # Delete VM
-macosprox delete vm-name
+uv run macosprox delete vm-name
 ```
 
 ## Dependencies
