@@ -13,13 +13,13 @@ on:
 jobs:
   claude:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && github.event.comment.user.login == 'eginez') ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && github.event.comment.user.login == 'eginez') ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && github.event.review.user.login == 'eginez') ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && github.event.issue.user.login == 'eginez')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: read
       issues: read
       id-token: write
@@ -44,16 +44,48 @@ jobs:
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
           
-          # Optional: Allow Claude to run specific commands
-          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          # Allow Claude to run Python development commands
+          allowed_tools: |
+            Bash(uv sync),
+            Bash(uv run ruff check),
+            Bash(uv run ruff check --fix),
+            Bash(uv run mypy src/),
+            Bash(uv run python -m pytest*),
+            Bash(uv run macosprox*),
+            Bash(python -c*),
+            Bash(python3 -c*),
+            Bash(uv run python -c*),
+            Bash(pip install*),
+            Bash(uv add*),
+            Bash(uv remove*),
+            Bash(git status),
+            Bash(git diff*),
+            Bash(git add*),
+            Bash(git commit*)
           
-          # Optional: Add custom instructions for Claude to customize its behavior for your project
-          # custom_instructions: |
-          #   Follow our coding standards
-          #   Ensure all new code has tests
-          #   Use TypeScript for new files
+          # Custom instructions for this Python VM project
+          custom_instructions: |
+            This is a Python project using uv for dependency management and Apple's Virtualization Framework.
+            
+            Key guidelines:
+            - Always use `uv run` prefix for Python commands
+            - Run `uv run ruff check` and `uv run mypy src/` before any commits
+            - Follow the project's existing code style and patterns
+            - The project creates and manages macOS VMs, so be mindful of platform-specific code
+            - Use PyObjC bindings appropriately when working with Apple frameworks
+            - Ensure proper error handling for VM operations
+            - Follow the architecture described in CLAUDE.md
+            
+            Available tools:
+            - ruff for linting and formatting
+            - mypy for type checking  
+            - pytest for testing (if tests exist)
+            - uv for dependency management
+            
+            Before making changes, always check project status with ruff and mypy.
           
-          # Optional: Custom environment variables for Claude
-          # claude_env: |
-          #   NODE_ENV: test
+          # Set Python environment for Claude
+          claude_env: |
+            PYTHONPATH: src/
+            UV_SYSTEM_PYTHON: 1
 
