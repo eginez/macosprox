@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
 import logging
+
+from .models import VMInfo, VMListItem, VirtualizationSupport, VMType, VMStatus
 
 # PyObjC imports for Apple's Virtualization Framework
 import objc
@@ -73,7 +74,7 @@ class VMCreator:
                        cpu_count: int = 2,
                        memory_size_gb: int = 4,
                        disk_size_gb: int = 20,
-                       iso_path: str | None = None) -> dict[str, Any]:
+                       iso_path: str | None = None) -> VMInfo:
         """
         Create a Linux VM configuration
         
@@ -85,7 +86,7 @@ class VMCreator:
             iso_path: Path to Linux ISO file
             
         Returns:
-            Dictionary with VM configuration details
+            VMInfo model with VM configuration details
         """
         try:
             logger.info(f"Creating Linux VM: {name}")
@@ -185,16 +186,16 @@ class VMCreator:
             
             logger.info(f"Linux VM '{name}' created successfully")
             
-            return {
-                "name": name,
-                "type": "linux",
-                "cpu_count": cpu_count,
-                "memory_gb": memory_size_gb,
-                "disk_gb": disk_size_gb,
-                "disk_path": str(disk_path),
-                "vm_dir": str(vm_dir),
-                "status": "created"
-            }
+            return VMInfo(
+                name=name,
+                type=VMType.LINUX,
+                cpu_count=cpu_count,
+                memory_gb=memory_size_gb,
+                disk_gb=disk_size_gb,
+                disk_path=str(disk_path),
+                vm_dir=str(vm_dir),
+                status=VMStatus.CREATED
+            )
             
         except Exception as e:
             logger.error(f"Failed to create Linux VM: {e}")
@@ -244,31 +245,30 @@ class VMCreator:
             logger.error(f"Failed to stop VM: {e}")
             return False
     
-    def get_vm_state(self) -> str:
+    def get_vm_state(self) -> VMStatus:
         """Get current VM state"""
         if not self.vm:
-            return "not_configured"
+            return VMStatus.NOT_CONFIGURED
             
         state = self.vm.state()
-        state_map: dict[int, str] = {
-            VZVirtualMachineStateStopped: "stopped",
-            VZVirtualMachineStateRunning: "running",
-            VZVirtualMachineStatePaused: "paused",
-            VZVirtualMachineStateError: "error",
-            VZVirtualMachineStateStarting: "starting",
-            VZVirtualMachineStatePausing: "pausing",
-            VZVirtualMachineStateResuming: "resuming",
-            VZVirtualMachineStateStopping: "stopping",
+        state_map: dict[int, VMStatus] = {
+            VZVirtualMachineStateStopped: VMStatus.STOPPED,
+            VZVirtualMachineStateRunning: VMStatus.RUNNING,
+            VZVirtualMachineStatePaused: VMStatus.PAUSED,
+            VZVirtualMachineStateError: VMStatus.ERROR,
+            VZVirtualMachineStateStarting: VMStatus.STARTING,
+            VZVirtualMachineStatePausing: VMStatus.PAUSING,
+            VZVirtualMachineStateResuming: VMStatus.RESUMING,
+            VZVirtualMachineStateStopping: VMStatus.STOPPING,
         }
         
-        return state_map.get(state, "unknown")
+        return state_map.get(state, VMStatus.UNKNOWN)
     
     def _create_disk_image(self, path: str, size_gb: int) -> None:
         """Create a disk image file"""
         logger.info(f"Creating disk image: {path} ({size_gb}GB)")
         
         # Create empty disk image using dd
-        size_bytes: int = size_gb * 1024 * 1024 * 1024
         
         try:
             subprocess.run([
@@ -281,20 +281,20 @@ class VMCreator:
             raise
 
 
-def list_vms() -> list[dict[str, Any]]:
+def list_vms() -> list[VMListItem]:
     """List all VMs in the default VM directory"""
     vm_dir: Path = Path.home() / "VMs"
     if not vm_dir.exists():
         return []
     
-    vms: list[dict[str, Any]] = []
+    vms: list[VMListItem] = []
     for vm_path in vm_dir.iterdir():
         if vm_path.is_dir():
-            vms.append({
-                "name": vm_path.name,
-                "path": str(vm_path),
-                "exists": True
-            })
+            vms.append(VMListItem(
+                name=vm_path.name,
+                path=str(vm_path),
+                exists=True
+            ))
     
     return vms
 
@@ -323,32 +323,32 @@ def delete_vm(vm_name: str) -> bool:
         return False
 
 
-def check_virtualization_support() -> dict[str, Any]:
+def check_virtualization_support() -> VirtualizationSupport:
     """Check if the system supports virtualization"""
     try:
         # Try to import Virtualization framework
-        import Virtualization
+        import Virtualization  # noqa: F401
         
         # Check if we can create a basic configuration
-        config = VZVirtualMachineConfiguration.alloc().init()
+        VZVirtualMachineConfiguration.alloc().init()
         
-        return {
-            "supported": True,
-            "framework_available": True,
-            "pyobjc_version": objc.__version__,
-            "message": "Virtualization framework is available"
-        }
+        return VirtualizationSupport(
+            supported=True,
+            framework_available=True,
+            pyobjc_version=objc.__version__,
+            message="Virtualization framework is available"
+        )
     except ImportError as e:
-        return {
-            "supported": False,
-            "framework_available": False,
-            "error": str(e),
-            "message": "Virtualization framework not available"
-        }
+        return VirtualizationSupport(
+            supported=False,
+            framework_available=False,
+            error=str(e),
+            message="Virtualization framework not available"
+        )
     except Exception as e:
-        return {
-            "supported": False,
-            "framework_available": True,
-            "error": str(e),
-            "message": "Error checking virtualization support"
-        }
+        return VirtualizationSupport(
+            supported=False,
+            framework_available=True,
+            error=str(e),
+            message="Error checking virtualization support"
+        )

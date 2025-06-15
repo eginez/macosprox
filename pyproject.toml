@@ -20,6 +20,7 @@ dependencies = [
     "pyobjc-framework-cocoa>=11.0",
     "pyobjc-framework-virtualization>=11.0",
     "rich>=14.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.scripts]

@@ -8,9 +8,9 @@ from rich.table import Table
 from rich.panel import Panel
 import sys
 from pathlib import Path
-from typing import Any
 
 from .vm_creator import VMCreator, list_vms, check_virtualization_support
+from .models import VMInfo, VMListItem, VirtualizationSupport, VMStatus
 
 console: Console = Console()
 
@@ -27,17 +27,17 @@ def check() -> None:
     """Check if virtualization is supported on this system"""
     console.print("\n[bold blue]Checking Virtualization Support...[/bold blue]")
     
-    support_info: dict[str, Any] = check_virtualization_support()
+    support_info: VirtualizationSupport = check_virtualization_support()
     
-    if support_info["supported"]:
+    if support_info.supported:
         console.print(Panel(
-            f"✅ {support_info['message']}\nPyObjC Version: {support_info.get('pyobjc_version', 'Unknown')}",
+            f"✅ {support_info.message}\nPyObjC Version: {support_info.pyobjc_version or 'Unknown'}",
             title="[green]Virtualization Supported[/green]",
             border_style="green"
         ))
     else:
         console.print(Panel(
-            f"❌ {support_info['message']}\nError: {support_info.get('error', 'Unknown error')}",
+            f"❌ {support_info.message}\nError: {support_info.error or 'Unknown error'}",
             title="[red]Virtualization Not Supported[/red]",
             border_style="red"
         ))
@@ -56,16 +56,16 @@ def create(name: str, cpu: int, memory: int, disk: int, iso: str | None) -> None
     console.print(f"\n[bold blue]Creating VM: {name}[/bold blue]")
     
     # Check virtualization support first
-    support_info: dict[str, Any] = check_virtualization_support()
-    if not support_info["supported"]:
-        console.print(f"[red]Error:[/red] {support_info['message']}")
+    support_info: VirtualizationSupport = check_virtualization_support()
+    if not support_info.supported:
+        console.print(f"[red]Error:[/red] {support_info.message}")
         sys.exit(1)
     
     try:
         creator: VMCreator = VMCreator()
         
         with console.status("[bold green]Creating VM configuration..."):
-            vm_info: dict[str, Any] = creator.create_linux_vm(
+            vm_info: VMInfo = creator.create_linux_vm(
                 name=name,
                 cpu_count=cpu,
                 memory_size_gb=memory,
@@ -78,14 +78,14 @@ def create(name: str, cpu: int, memory: int, disk: int, iso: str | None) -> None
         table.add_column("Property", style="cyan")
         table.add_column("Value", style="green")
         
-        table.add_row("Name", vm_info["name"])
-        table.add_row("Type", vm_info["type"].title())
-        table.add_row("CPU Cores", str(vm_info["cpu_count"]))
-        table.add_row("Memory", f"{vm_info['memory_gb']} GB")
-        table.add_row("Disk Size", f"{vm_info['disk_gb']} GB")
-        table.add_row("Disk Path", vm_info["disk_path"])
-        table.add_row("VM Directory", vm_info["vm_dir"])
-        table.add_row("Status", vm_info["status"].title())
+        table.add_row("Name", vm_info.name)
+        table.add_row("Type", vm_info.type.value.title())
+        table.add_row("CPU Cores", str(vm_info.cpu_count))
+        table.add_row("Memory", f"{vm_info.memory_gb} GB")
+        table.add_row("Disk Size", f"{vm_info.disk_gb} GB")
+        table.add_row("Disk Path", vm_info.disk_path)
+        table.add_row("VM Directory", vm_info.vm_dir)
+        table.add_row("Status", vm_info.status.value.title())
         
         console.print(table)
         
@@ -103,7 +103,7 @@ def list() -> None:
     
     console.print("\n[bold blue]Listing VMs...[/bold blue]")
     
-    vms: list[dict[str, Any]] = list_vms()
+    vms: list[VMListItem] = list_vms()
     
     if not vms:
         console.print("[yellow]No VMs found.[/yellow]")
@@ -117,9 +117,9 @@ def list() -> None:
     
     for vm in vms:
         table.add_row(
-            vm["name"],
-            vm["path"],
-            "Available" if vm["exists"] else "Missing"
+            vm.name,
+            vm.path,
+            "Available" if vm.exists else "Missing"
         )
     
     console.print(table)
@@ -134,7 +134,7 @@ def start(vm_name):
     
     # Check if VM exists
     vms = list_vms()
-    vm_exists = any(vm["name"] == vm_name for vm in vms)
+    vm_exists = any(vm.name == vm_name for vm in vms)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
@@ -146,7 +146,7 @@ def start(vm_name):
         
         # First create/load the VM configuration
         with console.status("[bold green]Loading VM configuration..."):
-            vm_info = creator.create_linux_vm(name=vm_name)
+            creator.create_linux_vm(name=vm_name)
         
         # Start the VM
         with console.status("[bold green]Starting VM..."):
@@ -157,8 +157,8 @@ def start(vm_name):
             console.print("[yellow]💡 Note:[/yellow] VM will continue running in the background")
             
             # Show current state
-            state = creator.get_vm_state()
-            console.print(f"[dim]Current state: {state}[/dim]")
+            state: VMStatus = creator.get_vm_state()
+            console.print(f"[dim]Current state: {state.value}[/dim]")
         else:
             console.print(f"[red]❌ Failed to start VM '{vm_name}'[/red]")
             sys.exit(1)
@@ -180,12 +180,12 @@ def stop(vm_name: str) -> None:
         
         # Load VM configuration
         with console.status("[bold green]Loading VM configuration..."):
-            vm_info: dict[str, Any] = creator.create_linux_vm(name=vm_name)
+            creator.create_linux_vm(name=vm_name)
         
         # Check current state
-        state: str = creator.get_vm_state()
-        if state not in ["running", "starting"]:
-            console.print(f"[yellow]⚠️  VM '{vm_name}' is not running (state: {state})[/yellow]")
+        state: VMStatus = creator.get_vm_state()
+        if state not in [VMStatus.RUNNING, VMStatus.STARTING]:
+            console.print(f"[yellow]⚠️  VM '{vm_name}' is not running (state: {state.value})[/yellow]")
             return
         
         # Stop the VM
@@ -211,8 +211,8 @@ def status(vm_name: str) -> None:
     console.print(f"\n[bold blue]VM Status: {vm_name}[/bold blue]")
     
     # Check if VM exists
-    vms: list[dict[str, Any]] = list_vms()
-    vm_exists: bool = any(vm["name"] == vm_name for vm in vms)
+    vms: list[VMListItem] = list_vms()
+    vm_exists: bool = any(vm.name == vm_name for vm in vms)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
@@ -222,28 +222,32 @@ def status(vm_name: str) -> None:
         creator: VMCreator = VMCreator()
         
         # Load VM configuration
-        vm_info: dict[str, Any] = creator.create_linux_vm(name=vm_name)
+        vm_info: VMInfo = creator.create_linux_vm(name=vm_name)
         
         # Get current state
-        state: str = creator.get_vm_state()
+        state: VMStatus = creator.get_vm_state()
         
         # Create status display
-        status_colors: dict[str, str] = {
-            "running": "green",
-            "stopped": "red", 
-            "starting": "yellow",
-            "stopping": "yellow",
-            "paused": "blue",
-            "error": "red",
-            "not_configured": "dim"
+        status_colors: dict[VMStatus, str] = {
+            VMStatus.RUNNING: "green",
+            VMStatus.STOPPED: "red", 
+            VMStatus.STARTING: "yellow",
+            VMStatus.STOPPING: "yellow",
+            VMStatus.PAUSED: "blue",
+            VMStatus.ERROR: "red",
+            VMStatus.NOT_CONFIGURED: "dim",
+            VMStatus.PAUSING: "yellow",
+            VMStatus.RESUMING: "yellow",
+            VMStatus.CREATED: "cyan",
+            VMStatus.UNKNOWN: "white"
         }
         
         color: str = status_colors.get(state, "white")
         
         console.print(Panel(
             f"VM: [bold]{vm_name}[/bold]\n"
-            f"State: [{color}]{state.title()}[/{color}]\n"
-            f"Path: [dim]{vm_info['vm_dir']}[/dim]",
+            f"State: [{color}]{state.value.title()}[/{color}]\n"
+            f"Path: [dim]{vm_info.vm_dir}[/dim]",
             title="VM Status",
             border_style=color
         ))
@@ -262,8 +266,8 @@ def delete(vm_name: str, force: bool) -> None:
     console.print(f"\n[bold red]Deleting VM: {vm_name}[/bold red]")
     
     # Check if VM exists
-    vms: list[dict[str, Any]] = list_vms()
-    vm_exists: bool = any(vm["name"] == vm_name for vm in vms)
+    vms: list[VMListItem] = list_vms()
+    vm_exists: bool = any(vm.name == vm_name for vm in vms)
     
     if not vm_exists:
         console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
@@ -278,12 +282,12 @@ def delete(vm_name: str, force: bool) -> None:
         
         # Load VM configuration to check current state
         with console.status("[bold yellow]Checking VM state..."):
-            vm_info: dict[str, Any] = creator.create_linux_vm(name=vm_name)
-            state: str = creator.get_vm_state()
+            creator.create_linux_vm(name=vm_name)
+            state: VMStatus = creator.get_vm_state()
         
         # Don't delete running VMs
-        if state in ["running", "starting"]:
-            console.print(f"[red]❌ Cannot delete VM '{vm_name}' while it's {state}.[/red]")
+        if state in [VMStatus.RUNNING, VMStatus.STARTING]:
+            console.print(f"[red]❌ Cannot delete VM '{vm_name}' while it's {state.value}.[/red]")
             console.print(f"[yellow]💡 Tip:[/yellow] Stop the VM first with 'macosprox stop {vm_name}'")
             sys.exit(1)
         
