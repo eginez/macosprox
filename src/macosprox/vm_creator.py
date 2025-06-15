@@ -190,8 +190,6 @@ class VMCreator:
             
             # Generate a predictable MAC address based on VM name
             # This helps with consistent IP assignment and SSH access
-            mac_bytes = bytes(f"52:54:00:{abs(hash(name)) % 256:02x}:{abs(hash(name)) % 256:02x}:{abs(hash(name)) % 256:02x}", 'utf-8')[:6]
-            # Actually create a proper MAC address
             mac_string = f"52:54:00:{abs(hash(name)) % 256:02x}:{abs(hash(name + '1')) % 256:02x}:{abs(hash(name + '2')) % 256:02x}"
             mac_address = VZMACAddress.alloc().initWithString_(mac_string)
             network_config.setMACAddress_(mac_address)
