@@ -1,2 +1,12 @@
 __pycache__
 .idea/
+
+# Kernel and initramfs files
+vmlinuz*
+initrd*
+initramfs*
+*.iso
+
+# VM directories and logs
+VMs/
+*.log
