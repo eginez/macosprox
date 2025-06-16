@@ -9,8 +9,8 @@ from rich.panel import Panel
 import sys
 from pathlib import Path
 
-from .vm_creator import VMCreator, list_vms, check_virtualization_support
-from .models import VMInfo, VMListItem, VirtualizationSupport, VMStatus
+from macosprox.vm_creator import VMCreator, list_vms, check_virtualization_support
+from macosprox.models import VMInfo, VMListItem, VirtualizationSupport, VMStatus
 
 console: Console = Console()
 
@@ -146,7 +146,8 @@ def list_vms_command() -> None:
 
 @cli.command()
 @click.argument("vm_name")
-def start(vm_name: str) -> None:
+@click.option("--foreground", "-f", is_flag=True, help="Keep VM running in foreground (required for VM to stay alive)")
+def start(vm_name: str, foreground: bool) -> None:
     """Start a VM"""
     
     console.print(f"\n[bold blue]Starting VM: {vm_name}[/bold blue]")
@@ -163,21 +164,55 @@ def start(vm_name: str) -> None:
     try:
         creator = VMCreator()
         
-        # First create/load the VM configuration
+        # First load the existing VM configuration
         with console.status("[bold green]Loading VM configuration..."):
-            creator.create_linux_vm(name=vm_name)
-        
+            if not creator.load_existing_vm(name=vm_name):
+                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+                sys.exit(1)
+
         # Start the VM
         with console.status("[bold green]Starting VM..."):
             success = creator.start_vm()
-        
         if success:
             console.print(f"[green]✅ VM '{vm_name}' is starting...[/green]")
-            console.print("[yellow]💡 Note:[/yellow] VM will continue running in the background")
             
-            # Show current state
-            state: VMStatus = creator.get_vm_state()
-            console.print(f"[dim]Current state: {state.value}[/dim]")
+            if foreground:
+                console.print("[yellow]💡 Running in foreground - press Ctrl+C to stop VM[/yellow]")
+                
+                # Show console log path
+                from pathlib import Path
+                console_log_path = Path.home() / "VMs" / vm_name / f"{vm_name}_console.log"
+                console.print(f"[dim]Console output: {console_log_path}[/dim]")
+                console.print(f"[dim]Tip: Run 'tail -f {console_log_path}' in another terminal to see boot output[/dim]")
+                
+                try:
+                    import time
+                    console.print(f"[green]VM '{vm_name}' is now running in foreground...[/green]")
+                    while True:
+                        # Keep the creator object alive by continuing to reference it
+                        state: VMStatus = creator.get_vm_state()
+                        if state == VMStatus.RUNNING:
+                            console.print(f"[green]VM '{vm_name}' is running - check console log for boot output[/green]")
+                        elif state == VMStatus.STARTING:
+                            console.print(f"[yellow]VM '{vm_name}' is starting...[/yellow]")
+                        elif state == VMStatus.STOPPED:
+                            console.print(f"[red]VM '{vm_name}' has stopped[/red]")
+                            break
+                        elif state == VMStatus.ERROR:
+                            console.print(f"[red]VM '{vm_name}' encountered an error[/red]")
+                            break
+                        time.sleep(5)  # Check every 5 seconds
+                except KeyboardInterrupt:
+                    console.print(f"\n[yellow]Stopping VM '{vm_name}'...[/yellow]")
+                    creator.stop_vm()
+                    console.print(f"[green]VM '{vm_name}' stopped[/green]")
+            else:
+                console.print("[yellow]💡 Note:[/yellow] VM will only stay running if you use --foreground flag")
+                console.print("[yellow]💡 Tip:[/yellow] Use 'macosprox start {vm_name} --foreground' to keep VM alive")
+                
+                # Show current state
+                current_state: VMStatus = creator.get_vm_state()
+                console.print(f"[dim]Current state: {current_state.value}[/dim]")
         else:
             console.print(f"[red]❌ Failed to start VM '{vm_name}'[/red]")
             sys.exit(1)
@@ -199,7 +234,9 @@ def stop(vm_name: str) -> None:
         
         # Load VM configuration
         with console.status("[bold green]Loading VM configuration..."):
-            creator.create_linux_vm(name=vm_name)
+            if not creator.load_existing_vm(name=vm_name):
+                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+                sys.exit(1)
         
         # Check current state
         state: VMStatus = creator.get_vm_state()
@@ -241,7 +278,10 @@ def status(vm_name: str) -> None:
         creator: VMCreator = VMCreator()
         
         # Load VM configuration
-        vm_info: VMInfo = creator.create_linux_vm(name=vm_name)
+        with console.status("[bold green]Loading VM configuration..."):
+            if not creator.load_existing_vm(name=vm_name):
+                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+                sys.exit(1)
         
         # Get current state
         state: VMStatus = creator.get_vm_state()
@@ -263,10 +303,13 @@ def status(vm_name: str) -> None:
         
         color: str = status_colors.get(state, "white")
         
+        # Get VM directory path
+        vm_dir_path = str(Path.home() / "VMs" / vm_name)
+        
         console.print(Panel(
             f"VM: [bold]{vm_name}[/bold]\n"
             f"State: [{color}]{state.value.title()}[/{color}]\n"
-            f"Path: [dim]{vm_info.vm_dir}[/dim]",
+            f"Path: [dim]{vm_dir_path}[/dim]",
             title="VM Status",
             border_style=color
         ))
@@ -301,7 +344,9 @@ def delete(vm_name: str, force: bool) -> None:
         
         # Load VM configuration to check current state
         with console.status("[bold yellow]Checking VM state..."):
-            creator.create_linux_vm(name=vm_name)
+            if not creator.load_existing_vm(name=vm_name):
+                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+                sys.exit(1)
             state: VMStatus = creator.get_vm_state()
         
         # Don't delete running VMs
@@ -377,7 +422,9 @@ def ssh(vm_name: str, user: str, key: str | None) -> None:
         
         # Load VM configuration to check state
         with console.status("[bold green]Checking VM state..."):
-            creator.create_linux_vm(name=vm_name)
+            if not creator.load_existing_vm(name=vm_name):
+                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+                sys.exit(1)
             state: VMStatus = creator.get_vm_state()
         
         if state != VMStatus.RUNNING:
