@@ -78,31 +78,67 @@ class VMCreator:
         """Generate a predictable MAC address based on VM name"""
         return f"52:54:00:{abs(hash(name)) % 256:02x}:{abs(hash(name + '1')) % 256:02x}:{abs(hash(name + '2')) % 256:02x}"
         
-    def create_linux_vm(self, 
+    def get_or_create_vm(self, 
                        name: str,
                        cpu_count: int = 2,
                        memory_size_gb: int = 4,
                        disk_size_gb: int = 20,
                        iso_path: str | None = None,
                        ssh_key: str | None = None,
-                       auto_install: bool = False) -> VMInfo:
+                       auto_install: bool = False,
+                       kernel_path: str | None = None,
+                       initramfs_path: str | None = None) -> VMInfo:
         """
-        Create a Linux VM configuration
+        Get existing VM or create a new Linux VM configuration
         
         Args:
             name: VM name
-            cpu_count: Number of CPU cores
-            memory_size_gb: Memory in GB
-            disk_size_gb: Disk size in GB
-            iso_path: Path to Linux ISO file
-            ssh_key: SSH public key content for cloud-init
-            auto_install: Whether to create cloud-init ISO for auto-installation
+            cpu_count: Number of CPU cores (used only for new VMs)
+            memory_size_gb: Memory in GB (used only for new VMs)
+            disk_size_gb: Disk size in GB (used only for new VMs)
+            iso_path: Path to Linux ISO file (used only for new VMs)
+            ssh_key: SSH public key content for cloud-init (used only for new VMs)
+            auto_install: Whether to create cloud-init ISO (used only for new VMs)
+            kernel_path: Path to kernel file (required for new VMs)
+            initramfs_path: Path to initramfs file (required for new VMs)
             
         Returns:
             VMInfo model with VM configuration details
         """
         try:
-            logger.info(f"Creating Linux VM: {name}")
+            # Set VM directory
+            vm_dir = Path.home() / "VMs" / name
+            metadata_file = vm_dir / "vm_metadata.json"
+            
+            # Check if VM already exists
+            if vm_dir.exists() and metadata_file.exists():
+                logger.info(f"Loading existing VM: {name}")
+                
+                # Load existing VM metadata
+                import json
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                logger.info(f"Loaded VM metadata: {metadata}")
+                
+                # Use stored values for configuration
+                cpu_count = metadata["cpu_count"]
+                memory_size_gb = metadata["memory_size_gb"]
+                disk_size_gb = metadata["disk_size_gb"]
+                iso_path = metadata.get("iso_path")
+                auto_install = metadata.get("auto_install", False)
+                kernel_path = metadata.get("kernel_path", None)
+                initramfs_path = metadata.get("initramfs_path", None)
+            else:
+                logger.info(f"Creating new Linux VM: {name}")
+                
+                # Validate required parameters for new VM
+                if not kernel_path:
+                    raise Exception("Kernel path is required for new VMs")
+                if not initramfs_path:
+                    raise Exception("Initramfs path is required for new VMs")
+                
+                # Create VM directory
+                vm_dir.mkdir(parents=True, exist_ok=True)
             
             # Create VM configuration
             config = VZVirtualMachineConfiguration.new()
@@ -115,21 +151,18 @@ class VMCreator:
             platform_config = VZGenericPlatformConfiguration.new()
             config.setPlatform_(platform_config)
             
-            # Create storage device (disk)
-            vm_dir = Path.home() / "VMs" / name
-            vm_dir.mkdir(parents=True, exist_ok=True)
-            
             # Set up Linux boot loader for direct kernel boot
-            kernel_path = Path("./vmlinuz-ubuntu-arm64").resolve()
-            initramfs_path = Path("./initrd-ubuntu-arm64").resolve()
+                
+            kernel_file_path = Path(kernel_path).resolve()
+            initramfs_file_path = Path(initramfs_path).resolve()
             
-            if not kernel_path.exists():
-                raise Exception(f"Kernel not found: {kernel_path}")
-            if not initramfs_path.exists():
-                raise Exception(f"Initramfs not found: {initramfs_path}")
+            if not kernel_file_path.exists():
+                raise Exception(f"Kernel not found: {kernel_file_path}")
+            if not initramfs_file_path.exists():
+                raise Exception(f"Initramfs not found: {initramfs_file_path}")
             
-            kernel_url = NSURL.fileURLWithPath_(str(kernel_path))
-            initramfs_url = NSURL.fileURLWithPath_(str(initramfs_path))
+            kernel_url = NSURL.fileURLWithPath_(str(kernel_file_path))
+            initramfs_url = NSURL.fileURLWithPath_(str(initramfs_file_path))
             
             bootloader = VZLinuxBootLoader.alloc().initWithKernelURL_(kernel_url)
             bootloader.setInitialRamdiskURL_(initramfs_url)
@@ -161,10 +194,10 @@ class VMCreator:
                 iso_attachment = VZDiskImageStorageDeviceAttachment.alloc().initWithURL_readOnly_error_(
                     iso_url, True, None  # Read-only for ISO
                 )[0]
-                
+
                 iso_config = VZVirtioBlockDeviceConfiguration.alloc().initWithAttachment_(iso_attachment)
                 storage_devices.append(iso_config)
-            
+
             # Create cloud-init ISO if auto-install is enabled
             if auto_install:
                 try:
@@ -175,7 +208,7 @@ class VMCreator:
                         cloud_init_attachment = VZDiskImageStorageDeviceAttachment.alloc().initWithURL_readOnly_error_(
                             cloud_init_url, True, None
                         )[0]
-                        
+
                         cloud_init_config = VZVirtioBlockDeviceConfiguration.alloc().initWithAttachment_(cloud_init_attachment)
                         storage_devices.append(cloud_init_config)
                         logger.info("Cloud-init ISO mounted successfully")
@@ -184,7 +217,7 @@ class VMCreator:
                 except Exception as e:
                     logger.error(f"Failed to create/mount cloud-init ISO: {e}")
                     # Continue without cloud-init rather than failing completely
-            
+
             config.setStorageDevices_(storage_devices)
             
             # Configure network with predictable MAC address for easier DHCP/SSH access
@@ -233,12 +266,6 @@ class VMCreator:
             # Open file handles for reading (stdin) and writing (console output)
             stdin_handle = Foundation.NSFileHandle.fileHandleWithStandardInput()
             stdout_file_handle = Foundation.NSFileHandle.fileHandleForWritingAtPath_(str(console_log_path))
-            if not stdout_file_handle:
-                # Fallback to creating the file handle differently
-                import os
-                fd = os.open(str(console_log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-                stdout_file_handle = Foundation.NSFileHandle.alloc().initWithFileDescriptor_(fd)
-            
             console_attachment = VZFileHandleSerialPortAttachment.alloc().initWithFileHandleForReading_fileHandleForWriting_(
                 stdin_handle, stdout_file_handle
             )
@@ -247,14 +274,10 @@ class VMCreator:
             console_port.setAttachment_(console_attachment)
             
             # Set the port in the console device
-            console_device.setPorts_([console_port])
-            # Temporarily disable console to see if that's blocking completion
-            # config.setConsoleDevices_([console_device])
-            config.setConsoleDevices_([])
-            
-            # Configure audio
-            audio_config = VZVirtioSoundDeviceConfiguration.new()
-            config.setAudioDevices_([audio_config])
+            ports_array = console_device.ports()
+            ports_array.setObject_atIndexedSubscript_(console_port, 0)
+            config.setConsoleDevices_([console_device])
+            #config.setConsoleDevices_([])
             
             # Validate configuration
             result = config.validateWithError_(None)
@@ -278,6 +301,8 @@ class VMCreator:
                 "disk_size_gb": disk_size_gb,
                 "iso_path": iso_path,
                 "auto_install": auto_install,
+                "kernel_path": str(kernel_file_path),
+                "initramfs_path": str(initramfs_file_path),
                 "created_at": str(Path.cwd() / "placeholder")  # Will be updated below
             }
             
@@ -300,174 +325,23 @@ class VMCreator:
             )
             
         except Exception as e:
-            logger.error(f"Failed to create Linux VM: {e}")
+            logger.exception(f"Failed to create Linux VM")
             raise
-    
-    def load_existing_vm(self, name: str) -> bool:
-        """
-        Load an existing VM configuration
-        
-        Args:
-            name: VM name
-            
-        Returns:
-            True if VM loaded successfully, False otherwise
-        """
-        try:
-            logger.info(f"Loading existing VM: {name}")
-            
-            # Set VM directory
-            self.vm_dir = Path.home() / "VMs" / name
-            if not self.vm_dir.exists():
-                logger.error(f"VM directory not found: {self.vm_dir}")
-                return False
-            
-            # Load VM metadata
-            metadata_file = self.vm_dir / "vm_metadata.json"
-            if metadata_file.exists():
-                import json
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
-                logger.info(f"Loaded VM metadata: {metadata}")
-            else:
-                # Fallback for VMs created before metadata
-                metadata = {
-                    "cpu_count": 2,
-                    "memory_size_gb": 2,
-                    "iso_path": None,
-                    "auto_install": False
-                }
-                logger.warning("No metadata found, using defaults")
-            
-            # Check if main disk exists
-            disk_path = self.vm_dir / f"{name}.img"
-            if not disk_path.exists():
-                logger.error(f"VM disk not found: {disk_path}")
-                return False
-            
-            # Recreate VM configuration using stored metadata
-            config = VZVirtualMachineConfiguration()
-            
-            # Set configuration from metadata
-            config.setCPUCount_(metadata["cpu_count"])
-            config.setMemorySize_(metadata["memory_size_gb"] * 1024 * 1024 * 1024)
-            
-            # Platform configuration
-            platform_config = VZGenericPlatformConfiguration.new()
-            config.setPlatform_(platform_config)
-            
-            # Boot loader configuration - same as create_linux_vm
-            kernel_path = Path("../../vmlinuz-ubuntu-arm64").resolve()
-            initramfs_path = Path("../../initrd-ubuntu-arm64").resolve()
-            
-            if not kernel_path.exists():
-                raise Exception(f"Kernel not found: {kernel_path}")
-            if not initramfs_path.exists():
-                raise Exception(f"Initramfs not found: {initramfs_path}")
-            
-            kernel_url = NSURL.fileURLWithPath_(str(kernel_path))
-            initramfs_url = NSURL.fileURLWithPath_(str(initramfs_path))
-            
-            linux_boot_loader = VZLinuxBootLoader.alloc().initWithKernelURL_(kernel_url)
-            linux_boot_loader.setInitialRamdiskURL_(initramfs_url)
-            #linux_boot_loader.setCommandLine_("console=hvc0 init=/bin/sh")
-            linux_boot_loader.setCommandLine_("console=hvc0")
-
-            config.setBootLoader_(linux_boot_loader)
-
-            # Storage configuration - main disk
-            import Foundation
-            storage_devices = Foundation.NSMutableArray.alloc().init()
-            
-            disk_attachment = VZDiskImageStorageDeviceAttachment.alloc().initWithURL_readOnly_error_(
-                NSURL.fileURLWithPath_(str(disk_path)), False, None
-            )[0]
-            storage_device = VZVirtioBlockDeviceConfiguration.alloc().initWithAttachment_(disk_attachment)
-            storage_devices.addObject_(storage_device)
-            
-            # Network configuration
-            network_devices = Foundation.NSMutableArray.alloc().init()
-            network_device = VZVirtioNetworkDeviceConfiguration.new()
-            
-            # Generate consistent MAC address
-           # mac_string = self._generate_mac_address(name)
-           # mac_address = VZMACAddress.alloc().initWithString_(mac_string)
-           # network_device.setMACAddress_(mac_address)
-           #
-           # nat_attachment = VZNATNetworkDeviceAttachment.new()
-           # network_device.setAttachment_(nat_attachment)
-           # network_devices.addObject_(network_device)
-           # config.setNetworkDevices_(network_devices)
-            
-            # Console configuration for debugging
-            console_device = VZVirtioConsoleDeviceConfiguration.new()
-
-            console_port = VZVirtioConsolePortConfiguration.new()
-            console_port.setIsConsole_(True)
-
-            # Create file handles for console I/O - use file-based output
-            import Foundation
-            console_log_path = self.vm_dir / f"{name}_console.log"
-            # Create/truncate the console log file
-            with open(console_log_path, 'w') as f:
-                f.write(f"Console log for VM {name}\n")
-            
-            # Open file handles for reading (stdin) and writing (console output)
-            stdin_handle = Foundation.NSFileHandle.fileHandleWithStandardInput()
-            stdout_file_handle = Foundation.NSFileHandle.fileHandleForWritingAtPath_(str(console_log_path))
-            if not stdout_file_handle:
-                # Fallback to creating the file handle differently
-                import os
-                fd = os.open(str(console_log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-                stdout_file_handle = Foundation.NSFileHandle.alloc().initWithFileDescriptor_(fd)
-            
-            console_attachment = VZFileHandleSerialPortAttachment.alloc().initWithFileHandleForReading_fileHandleForWriting_(
-                stdin_handle, stdout_file_handle
-            )
-            
-            logger.info(f"Console output will be written to: {console_log_path}")
-            console_port.setAttachment_(console_attachment)
-
-            # Set the port in the console device
-            ports_array = console_device.ports()
-            ports_array.setObject_atIndexedSubscript_(console_port, 0)
-
-            config.setConsoleDevices_([console_device])
-
-            # Other essential devices
-           # config.setEntropyDevices_([VZVirtioEntropyDeviceConfiguration.new()])
-           # config.setKeyboards_([VZUSBKeyboardConfiguration.new()])
-           # config.setPointingDevices_([VZUSBScreenCoordinatePointingDeviceConfiguration.new()])
-            
-            # Validate configuration
-            is_valid, error = config.validateWithError_(None)
-            if not is_valid:
-                logger.error(f"VM configuration validation failed: {error}")
-                return False
-            
-            # Create VM instance  
-            self.config = config
-            self.vm = VZVirtualMachine.alloc().initWithConfiguration_(config)
-            
-            # Set delegate for VM events
-            self.vm.setDelegate_(self.delegate)
-            
-            logger.info(f"VM '{name}' loaded successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to load existing VM: {e}")
-            return False
     
     def start_vm(self) -> bool:
         """Start the configured VM"""
         if not self.vm:
             logger.error("No VM configured")
             return False
-            
+
         try:
             logger.info("Starting VM...")
-            
+
+            import threading
+            import time
+            self._start_complete = threading.Event()
+            self._start_error = None
+
             def completion_handler(error: NSError | None) -> None:
                 logger.info("VM start completion handler called")
                 if error:
@@ -475,27 +349,46 @@ class VMCreator:
                     logger.error(f"Error domain: {error.domain()}")
                     logger.error(f"Error code: {error.code()}")
                     logger.error(f"Error description: {error.localizedDescription()}")
+                    self._start_error = str(error)
                 else:
                     logger.info("VM started successfully - no error")
+                    self._start_error = None
+
+                # Signal completion
+                self._start_complete.set()
 
             # Check if VM can start
             if not self.vm.canStart():
                 logger.error("VM cannot be started - canStart() returned False")
                 return False
-            
+
+            # Start NSRunLoop in background thread that runs indefinitely
+            def runloop_thread():
+                import Foundation
+                runloop = Foundation.NSRunLoop.currentRunLoop()
+                logger.info("Starting NSRunLoop in background thread (runs indefinitely)")
+                runloop.run()  # This runs indefinitely
+                logger.info("NSRunLoop ended")
+
+
             # Start the VM
             self.vm.startWithCompletionHandler_(completion_handler)
             logger.info("VM start initiated successfully")
-            
-            # Keep the runloop alive so completion handler can execute
-            import Foundation
-            runloop = Foundation.NSRunLoop.currentRunLoop()
-            logger.info("Starting runloop to wait for completion handler")
-            runloop.runUntilDate_(Foundation.NSDate.dateWithTimeIntervalSinceNow_(5.0))
-            logger.info("Runloop finished")
-            
-            return True
-            
+            runloop_thread()
+            #self._runloop_thread = threading.Thread(target=runloop_thread, daemon=True)
+            #self._runloop_thread.start()
+
+            # Wait for completion with timeout
+            if self._start_complete.wait(timeout=30.0):
+                if self._start_error:
+                    logger.error(f"VM start failed: {self._start_error}")
+                    return False
+                logger.info("VM started successfully")
+                return True
+            else:
+                logger.error("VM start timed out")
+                return False
+
         except Exception as e:
             logger.error(f"Failed to start VM: {e}")
             return False

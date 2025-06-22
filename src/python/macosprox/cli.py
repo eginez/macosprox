@@ -44,76 +44,6 @@ def check() -> None:
         sys.exit(1)
 
 
-@cli.command()
-@click.option("--name", "-n", required=True, help="VM name")
-@click.option("--cpu", "-c", default=2, help="Number of CPU cores (default: 2)")
-@click.option("--memory", "-m", default=4, help="Memory in GB (default: 4)")
-@click.option("--disk", "-d", default=20, help="Disk size in GB (default: 20)")
-@click.option("--iso", "-i", help="Path to Linux ISO file for installation")
-@click.option("--ssh-key", help="Path to SSH public key file (will generate one if not provided)")
-@click.option("--auto-install", is_flag=True, help="Create cloud-init ISO for automatic Linux installation")
-def create(name: str, cpu: int, memory: int, disk: int, iso: str | None, ssh_key: str | None, auto_install: bool) -> None:
-    """Create a new Linux VM with optional ISO mounting and SSH setup"""
-    
-    console.print(f"\n[bold blue]Creating VM: {name}[/bold blue]")
-    
-    # Validate SSH key if provided
-    ssh_key_content = None
-    if ssh_key and Path(ssh_key).exists():
-        with open(ssh_key, 'r') as f:
-            ssh_key_content = f.read().strip()
-        console.print(f"[green]Using SSH key:[/green] {ssh_key}")
-    elif ssh_key:
-        console.print(f"[red]Error:[/red] SSH key file not found: {ssh_key}")
-        sys.exit(1)
-    
-    # Validate ISO if provided
-    if iso and not Path(iso).exists():
-        console.print(f"[red]Error:[/red] ISO file not found: {iso}")
-        sys.exit(1)
-    
-    # Check virtualization support first
-    support_info: VirtualizationSupport = check_virtualization_support()
-    if not support_info.supported:
-        console.print(f"[red]Error:[/red] {support_info.message}")
-        sys.exit(1)
-    
-    try:
-        creator: VMCreator = VMCreator()
-        
-        with console.status("[bold green]Creating VM configuration..."):
-            vm_info: VMInfo = creator.create_linux_vm(
-                name=name,
-                cpu_count=cpu,
-                memory_size_gb=memory,
-                disk_size_gb=disk,
-                iso_path=iso,
-                ssh_key=ssh_key_content,
-                auto_install=auto_install
-            )
-        
-        # Display VM information
-        table: Table = Table(title=f"VM Created: {name}")
-        table.add_column("Property", style="cyan")
-        table.add_column("Value", style="green")
-        
-        table.add_row("Name", vm_info.name)
-        table.add_row("Type", vm_info.type.value.title())
-        table.add_row("CPU Cores", str(vm_info.cpu_count))
-        table.add_row("Memory", f"{vm_info.memory_gb} GB")
-        table.add_row("Disk Size", f"{vm_info.disk_gb} GB")
-        table.add_row("Disk Path", vm_info.disk_path)
-        table.add_row("VM Directory", vm_info.vm_dir)
-        table.add_row("Status", vm_info.status.value.title())
-        
-        console.print(table)
-        
-        console.print(f"\n[green]✅ VM '{name}' created successfully![/green]")
-        console.print(f"[yellow]💡 Tip:[/yellow] Use 'macosprox start {name}' to start the VM")
-        
-    except Exception as e:
-        console.print(f"[red]❌ Failed to create VM:[/red] {str(e)}")
-        sys.exit(1)
 
 
 @cli.command("list")
@@ -147,28 +77,81 @@ def list_vms_command() -> None:
 @cli.command()
 @click.argument("vm_name")
 @click.option("--foreground", "-f", is_flag=True, help="Keep VM running in foreground (required for VM to stay alive)")
-def start(vm_name: str, foreground: bool) -> None:
-    """Start a VM"""
-    
-    console.print(f"\n[bold blue]Starting VM: {vm_name}[/bold blue]")
+@click.option("--cpu", "-c", default=2, help="Number of CPU cores for new VM (default: 2)")
+@click.option("--memory", "-m", default=4, help="Memory in GB for new VM (default: 4)")
+@click.option("--disk", "-d", default=20, help="Disk size in GB for new VM (default: 20)")
+@click.option("--iso", "-i", help="Path to Linux ISO file for installation")
+@click.option("--ssh-key", help="Path to SSH public key file (will generate one if not provided)")
+@click.option("--auto-install", is_flag=True, help="Create cloud-init ISO for automatic Linux installation")
+@click.option("--kernel", help="Path to kernel file (required for new VMs)")
+@click.option("--initramfs", help="Path to initramfs file (required for new VMs)")
+def start(vm_name: str, foreground: bool, cpu: int, memory: int, disk: int, iso: str | None, ssh_key: str | None, auto_install: bool, kernel: str | None, initramfs: str | None) -> None:
+    from pathlib import Path
+    """Start a VM (create if it doesn't exist)"""
     
     # Check if VM exists
     vm_list = list_vms()
     vm_exists = any(vm.name == vm_name for vm in vm_list)
     
-    if not vm_exists:
-        console.print(f"[red]❌ VM '{vm_name}' not found.[/red]")
-        console.print("[dim]Use 'macosprox list' to see available VMs[/dim]")
-        sys.exit(1)
-    
     try:
         creator = VMCreator()
         
-        # First load the existing VM configuration
-        with console.status("[bold green]Loading VM configuration..."):
-            if not creator.load_existing_vm(name=vm_name):
-                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+        # Validate kernel and initramfs (required for new VMs only)
+        if not vm_exists:
+            if not kernel:
+                console.print(f"[red]Error:[/red] --kernel is required when creating a new VM")
                 sys.exit(1)
+            if not initramfs:
+                console.print(f"[red]Error:[/red] --initramfs is required when creating a new VM")
+                sys.exit(1)
+            
+            if not Path(kernel).exists():
+                console.print(f"[red]Error:[/red] Kernel file not found: {kernel}")
+                sys.exit(1)
+            if not Path(initramfs).exists():
+                console.print(f"[red]Error:[/red] Initramfs file not found: {initramfs}")
+                sys.exit(1)
+        
+        # Validate SSH key if provided
+        ssh_key_content = None
+        if ssh_key and Path(ssh_key).exists():
+            with open(ssh_key, 'r') as f:
+                ssh_key_content = f.read().strip()
+            console.print(f"[green]Using SSH key:[/green] {ssh_key}")
+        elif ssh_key:
+            console.print(f"[red]Error:[/red] SSH key file not found: {ssh_key}")
+            sys.exit(1)
+        
+        # Validate ISO if provided
+        if iso and not Path(iso).exists():
+            console.print(f"[red]Error:[/red] ISO file not found: {iso}")
+            sys.exit(1)
+        
+        # Check virtualization support first
+        support_info: VirtualizationSupport = check_virtualization_support()
+        if not support_info.supported:
+            console.print(f"[red]Error:[/red] {support_info.message}")
+            sys.exit(1)
+        
+        # Get or create VM configuration
+        action = "Starting existing" if vm_exists else "Creating and starting new"
+        console.print(f"\n[bold blue]{action} VM: {vm_name}[/bold blue]")
+        
+        with console.status("[bold green]Loading/Creating VM configuration..."):
+            vm_info: VMInfo = creator.get_or_create_vm(
+                name=vm_name,
+                cpu_count=cpu,
+                memory_size_gb=memory,
+                disk_size_gb=disk,
+                iso_path=iso,
+                ssh_key=ssh_key_content,
+                auto_install=auto_install,
+                kernel_path=kernel,
+                initramfs_path=initramfs
+            )
+        
+        if not vm_exists:
+            console.print(f"[green]✅ VM '{vm_name}' created successfully![/green]")
 
         # Start the VM
         with console.status("[bold green]Starting VM..."):
@@ -186,22 +169,11 @@ def start(vm_name: str, foreground: bool) -> None:
                 console.print(f"[dim]Tip: Run 'tail -f {console_log_path}' in another terminal to see boot output[/dim]")
                 
                 try:
-                    import time
                     console.print(f"[green]VM '{vm_name}' is now running in foreground...[/green]")
-                    while True:
-                        # Keep the creator object alive by continuing to reference it
-                        state: VMStatus = creator.get_vm_state()
-                        if state == VMStatus.RUNNING:
-                            console.print(f"[green]VM '{vm_name}' is running - check console log for boot output[/green]")
-                        elif state == VMStatus.STARTING:
-                            console.print(f"[yellow]VM '{vm_name}' is starting...[/yellow]")
-                        elif state == VMStatus.STOPPED:
-                            console.print(f"[red]VM '{vm_name}' has stopped[/red]")
-                            break
-                        elif state == VMStatus.ERROR:
-                            console.print(f"[red]VM '{vm_name}' encountered an error[/red]")
-                            break
-                        time.sleep(5)  # Check every 5 seconds
+                    console.print("[yellow]Press Ctrl+C to stop VM and exit[/yellow]")
+                    
+                    # Run the NSRunLoop indefinitely to keep VM alive
+                    creator.run_vm_forever()
                 except KeyboardInterrupt:
                     console.print(f"\n[yellow]Stopping VM '{vm_name}'...[/yellow]")
                     creator.stop_vm()
@@ -234,8 +206,10 @@ def stop(vm_name: str) -> None:
         
         # Load VM configuration
         with console.status("[bold green]Loading VM configuration..."):
-            if not creator.load_existing_vm(name=vm_name):
-                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
+            try:
+                creator.get_or_create_vm(name=vm_name)
+            except Exception as e:
+                console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}': {e}[/red]")
                 sys.exit(1)
         
         # Check current state
@@ -279,7 +253,7 @@ def status(vm_name: str) -> None:
         
         # Load VM configuration
         with console.status("[bold green]Loading VM configuration..."):
-            if not creator.load_existing_vm(name=vm_name):
+            if not creator.get_or_create_vm(name=vm_name):
                 console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
                 sys.exit(1)
         
@@ -344,7 +318,7 @@ def delete(vm_name: str, force: bool) -> None:
         
         # Load VM configuration to check current state
         with console.status("[bold yellow]Checking VM state..."):
-            if not creator.load_existing_vm(name=vm_name):
+            if not creator.get_or_create_vm(name=vm_name):
                 console.print(f"[red]❌ Failed to load VM configuration for '{vm_name}'[/red]")
                 sys.exit(1)
             state: VMStatus = creator.get_vm_state()

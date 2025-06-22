@@ -1,0 +1,19 @@
+# Swift Build Files
+.build/
+*.xcodeproj
+*.xcworkspace
+
+# macOS Files
+.DS_Store
+
+# Xcode Files
+*.xcuserdata
+*.xcscmblueprint
+
+# Swift Package Manager
+Packages/
+Package.resolved
+
+# Temporary files
+*.tmp
+*.temp
