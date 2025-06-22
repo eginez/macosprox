@@ -4,10 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**macosprox** is a VM Creator MVP that uses Apple's Virtualization Framework to create and manage Linux virtual machines on macOS. The project leverages PyObjC bindings to interact with Apple's native Virtualization Framework for high-performance VM creation and management with SSH access capabilities.
+**macosprox** is a VM Creator MVP that uses Apple's Virtualization Framework to create and manage Linux virtual machines on macOS. The project provides both Python and Swift implementations for VM creation and management with SSH access capabilities.
 
-The project uses uv with ruff and mypy
-Before every commit make sure ruff and mypy pass
+## Implementation Status
+
+### ✅ **Swift Implementation (Primary)**
+- **Location**: `src/swift/`
+- **Status**: Complete and production-ready
+- **Performance**: Native Swift with Apple Virtualization Framework
+- **Usage**: Primary implementation for web application backend
+
+### 🔄 **Python Implementation (Legacy)**
+- **Location**: `src/python/` 
+- **Status**: Legacy implementation (PyObjC-based)
+- **Usage**: Reference implementation, uses uv with ruff and mypy
+
+**Build Requirements:**
+- Swift implementation: `make` or `swift build` with code signing
+- Python implementation: Before commits ensure `ruff check` and `mypy src/` pass
 
 ## Current Status
 
@@ -25,21 +39,47 @@ Before every commit make sure ruff and mypy pass
 - **Validation** - Virtualization support checking
 
 ### 🎯 **Ready for Linux Installation:**
-The infrastructure is complete and ready to boot Linux VMs with SSH access. To test:
+The infrastructure is complete and ready to boot Linux VMs with SSH access.
 
-1. **Download a Linux ISO** (Ubuntu Server recommended)
-2. **Create VM with ISO and auto-install**:
-   ```bash
-   uv run macosprox create --name ubuntu-vm --cpu 4 --memory 4 --disk 20 \
-     --iso ~/Downloads/ubuntu-22.04-server.iso --auto-install
-   ```
-3. **Start the VM**: `uv run macosprox start ubuntu-vm`
-4. **SSH into the VM**: `uv run macosprox ssh ubuntu-vm`
+#### **Swift Implementation (Recommended):**
+```bash
+# Build and sign
+cd src/swift && make
+
+# Check virtualization support
+./.build/debug/macosprox check
+
+# Create VM with ISO and auto-install
+./.build/debug/macosprox create --name ubuntu-vm --cpu 4 --memory 4 --disk 20 \
+  --iso ~/Downloads/ubuntu-22.04-server.iso --auto-install
+
+# Start the VM
+./.build/debug/macosprox start ubuntu-vm
+
+# SSH into the VM
+./.build/debug/macosprox ssh ubuntu-vm
+```
+
+#### **Python Implementation (Legacy):**
+```bash
+# Test with Python implementation
+uv run macosprox create --name ubuntu-vm --cpu 4 --memory 4 --disk 20 \
+  --iso ~/Downloads/ubuntu-22.04-server.iso --auto-install
+uv run macosprox start ubuntu-vm
+uv run macosprox ssh ubuntu-vm
+```
 
 ## Key Architecture
 
 ### Core Components
 
+#### **Swift Implementation:**
+- **main.swift**: Complete CLI interface with argument parsing and command execution
+- **VMCreator.swift**: Core VM creation and management using Apple's Virtualization Framework
+- **Package.swift**: Swift package configuration with entitlements
+- **Resources/entitlements.plist**: Required entitlements for virtualization framework access
+
+#### **Python Implementation (Legacy):**
 - **cli.py**: Click-based command-line interface with Rich formatting for user interaction
 - **vm_creator.py**: Core VM creation and management logic using Apple's Virtualization Framework
 - **main.py**: Entry point that launches the CLI
@@ -94,7 +134,76 @@ The VM creation process follows this pattern:
 
 ## Development Commands
 
-### Installation and Setup
+### Swift Implementation (Primary)
+
+#### **Build and Setup:**
+```bash
+cd src/swift
+
+# Build and sign with entitlements (recommended)
+make
+
+# Development build (faster, no signing)
+make dev
+
+# Release build
+make release
+
+# Clean build artifacts
+make clean
+
+# Run tests
+make test
+```
+
+#### **Manual Build Process:**
+```bash
+# Build only
+swift build
+
+# Build and sign manually
+swift build
+codesign --force --sign - --entitlements Resources/entitlements.plist .build/debug/macosprox
+```
+
+#### **Key CLI Commands:**
+```bash
+# All commands use the built executable
+cd src/swift
+
+# Check virtualization support
+./.build/debug/macosprox check
+
+# Create a new VM (basic)
+./.build/debug/macosprox create --name test-vm --cpu 2 --memory 4 --disk 20
+
+# Create a VM with ISO mounting
+./.build/debug/macosprox create --name ubuntu-vm --cpu 4 --memory 8 --disk 40 --iso /path/to/ubuntu.iso
+
+# Create a VM with auto-installation and SSH setup
+./.build/debug/macosprox create --name auto-vm --cpu 2 --memory 4 --disk 20 --auto-install --ssh-key ~/.ssh/id_rsa.pub
+
+# List VMs
+./.build/debug/macosprox list
+
+# Start/stop VMs
+./.build/debug/macosprox start vm-name
+./.build/debug/macosprox stop vm-name
+
+# Check VM status
+./.build/debug/macosprox status vm-name
+
+# SSH into a running VM
+./.build/debug/macosprox ssh vm-name
+./.build/debug/macosprox ssh vm-name --user ubuntu --key ~/.ssh/my_key
+
+# Delete VM
+./.build/debug/macosprox delete vm-name
+```
+
+### Python Implementation (Legacy)
+
+#### **Installation and Setup:**
 ```bash
 # Install dependencies using uv (modern Python package manager)
 uv sync
@@ -110,61 +219,49 @@ uv run mypy src/
 uv run ruff --fix
 ```
 
-### Running the CLI
+#### **Running the CLI:**
 ```bash
 # Run the CLI directly
 uv run macosprox --help
-```
 
-### Key CLI Commands
-```bash
-# Check virtualization support
+# Example commands (same as Swift but with uv run prefix)
 uv run macosprox check
-
-# Create a new VM (basic)
 uv run macosprox create --name test-vm --cpu 2 --memory 4 --disk 20
-
-# Create a VM with ISO mounting
-uv run macosprox create --name ubuntu-vm --cpu 4 --memory 8 --disk 40 --iso /path/to/ubuntu.iso
-
-# Create a VM with auto-installation and SSH setup
-uv run macosprox create --name auto-vm --cpu 2 --memory 4 --disk 20 --auto-install --ssh-key ~/.ssh/id_rsa.pub
-
-# List VMs
 uv run macosprox list
-
-# Start/stop VMs
-uv run macosprox start vm-name
-uv run macosprox stop vm-name
-
-# Check VM status
-uv run macosprox status vm-name
-
-# SSH into a running VM
-uv run macosprox ssh vm-name
-uv run macosprox ssh vm-name --user ubuntu --key ~/.ssh/my_key
-
-# Delete VM
-uv run macosprox delete vm-name
 ```
 
 ## Dependencies
 
+### Swift Implementation:
+- **Apple Virtualization Framework**: Native macOS virtualization framework
+- **Foundation**: Core macOS system framework
+- **CryptoKit**: For cryptographic operations
+- **Swift 5.9+**: Modern Swift language and runtime
+
+### Python Implementation (Legacy):
 - **PyObjC**: Provides Python bindings to Apple's Objective-C frameworks
 - **Click**: Command-line interface framework
 - **Rich**: Terminal formatting and display library
-- **Apple Virtualization Framework**: Native macOS virtualization (requires macOS 11+ and Apple Silicon or Intel with virtualization support)
+- **Python 3.13+** with uv package manager
 
 ## Platform Requirements
 
-- macOS 11 (Big Sur) or later
-- Python 3.13+
-- Apple Silicon or Intel Mac with virtualization support
-- Appropriate entitlements for Virtualization Framework access
+- **macOS 14+ (Sonoma)** - Required for Swift implementation
+- **macOS 11+ (Big Sur)** - Minimum for Python implementation
+- **Apple Silicon or Intel Mac** with virtualization support
+- **Appropriate entitlements** for Virtualization Framework access (automatically configured in Swift build)
+- **Xcode Command Line Tools** for Swift compilation and code signing
 
 ## Important Notes
 
-- The VMDelegate class handles VM lifecycle events and logging
+### Swift Implementation:
+- **Native Performance**: Direct Swift bindings to Apple's Virtualization Framework
+- **Code Signing**: Automatically signs executable with required entitlements
+- **Async/Await**: Modern Swift concurrency for VM operations
+- **Memory Management**: Automatic memory management with ARC
+- **Type Safety**: Compile-time type checking for reliability
+
+### General VM Behavior:
 - VM state management uses Apple's native state constants
 - Disk images are created as raw files using `dd` command
 - EFI variable stores are required for UEFI boot support
@@ -176,13 +273,37 @@ uv run macosprox delete vm-name
 
 ## Troubleshooting
 
-### Common Issues:
-1. **"Virtualization not supported"** - Requires macOS 11+ and Apple Silicon/Intel with virtualization
+### Swift Implementation Issues:
+1. **"Build failed"** - Ensure Xcode Command Line Tools are installed: `xcode-select --install`
+2. **"Code signing failed"** - Run `make` instead of `swift build` for automatic signing
+3. **"Virtualization entitlement error"** - Ensure executable is properly signed with entitlements
+
+### Common VM Issues:
+1. **"Virtualization not supported"** - Run `./.build/debug/macosprox check` to verify
 2. **VM won't start** - Check that an ISO is mounted or disk has a bootable OS
 3. **Can't SSH to VM** - VM needs to be running and have completed Linux installation
 4. **IP address not found** - Wait for VM to fully boot and get DHCP lease
 
 ### Debug Commands:
+
+#### Swift Implementation:
+```bash
+cd src/swift
+
+# Check VM state
+./.build/debug/macosprox status vm-name
+
+# Check virtualization support
+./.build/debug/macosprox check
+
+# View VM MAC address and attempt IP discovery
+./.build/debug/macosprox start vm-name
+
+# Check if VM has IP address
+arp -a | grep "52:54:00"
+```
+
+#### Python Implementation (Legacy):
 ```bash
 # Check VM state
 uv run macosprox status vm-name
