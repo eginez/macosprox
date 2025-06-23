@@ -44,20 +44,20 @@ The infrastructure is complete and ready to boot Linux VMs with SSH access.
 #### **Swift Implementation (Recommended):**
 ```bash
 # Build and sign
-cd src/swift && make
+make
 
 # Check virtualization support
-./.build/debug/macosprox check
+src/swift/.build/debug/macosprox check
 
 # Create VM with ISO and auto-install
-./.build/debug/macosprox create --name ubuntu-vm --cpu 4 --memory 4 --disk 20 \
+src/swift/.build/debug/macosprox create --name ubuntu-vm --cpu 4 --memory 4 --disk 20 \
   --iso ~/Downloads/ubuntu-22.04-server.iso --auto-install
 
 # Start the VM
-./.build/debug/macosprox start ubuntu-vm
+src/swift/.build/debug/macosprox start ubuntu-vm
 
 # SSH into the VM
-./.build/debug/macosprox ssh ubuntu-vm
+src/swift/.build/debug/macosprox ssh ubuntu-vm
 ```
 
 #### **Python Implementation (Legacy):**
@@ -138,8 +138,6 @@ The VM creation process follows this pattern:
 
 #### **Build and Setup:**
 ```bash
-cd src/swift
-
 # Build and sign with entitlements (recommended)
 make
 
@@ -154,51 +152,53 @@ make clean
 
 # Run tests
 make test
+
+# Show help
+make help
 ```
 
 #### **Manual Build Process:**
 ```bash
-# Build only
-swift build
+# Build only (from project root)
+cd src/swift && swift build
 
-# Build and sign manually
-swift build
-codesign --force --sign - --entitlements Resources/entitlements.plist .build/debug/macosprox
+# Build and sign manually (from project root)
+cd src/swift && swift build
+cd src/swift && codesign --force --sign - --entitlements Resources/entitlements.plist .build/debug/macosprox
 ```
 
 #### **Key CLI Commands:**
 ```bash
-# All commands use the built executable
-cd src/swift
+# All commands use the built executable (paths from project root)
 
 # Check virtualization support
-./.build/debug/macosprox check
+src/swift/.build/debug/macosprox check
 
 # Create a new VM (basic)
-./.build/debug/macosprox create --name test-vm --cpu 2 --memory 4 --disk 20
+src/swift/.build/debug/macosprox create --name test-vm --cpu 2 --memory 4 --disk 20
 
 # Create a VM with ISO mounting
-./.build/debug/macosprox create --name ubuntu-vm --cpu 4 --memory 8 --disk 40 --iso /path/to/ubuntu.iso
+src/swift/.build/debug/macosprox create --name ubuntu-vm --cpu 4 --memory 8 --disk 40 --iso /path/to/ubuntu.iso
 
 # Create a VM with auto-installation and SSH setup
-./.build/debug/macosprox create --name auto-vm --cpu 2 --memory 4 --disk 20 --auto-install --ssh-key ~/.ssh/id_rsa.pub
+src/swift/.build/debug/macosprox create --name auto-vm --cpu 2 --memory 4 --disk 20 --auto-install --ssh-key ~/.ssh/id_rsa.pub
 
 # List VMs
-./.build/debug/macosprox list
+src/swift/.build/debug/macosprox list
 
 # Start/stop VMs
-./.build/debug/macosprox start vm-name
-./.build/debug/macosprox stop vm-name
+src/swift/.build/debug/macosprox start vm-name
+src/swift/.build/debug/macosprox stop vm-name
 
 # Check VM status
-./.build/debug/macosprox status vm-name
+src/swift/.build/debug/macosprox status vm-name
 
 # SSH into a running VM
-./.build/debug/macosprox ssh vm-name
-./.build/debug/macosprox ssh vm-name --user ubuntu --key ~/.ssh/my_key
+src/swift/.build/debug/macosprox ssh vm-name
+src/swift/.build/debug/macosprox ssh vm-name --user ubuntu --key ~/.ssh/my_key
 
 # Delete VM
-./.build/debug/macosprox delete vm-name
+src/swift/.build/debug/macosprox delete vm-name
 ```
 
 ### Python Implementation (Legacy)
@@ -288,16 +288,14 @@ uv run macosprox list
 
 #### Swift Implementation:
 ```bash
-cd src/swift
-
 # Check VM state
-./.build/debug/macosprox status vm-name
+src/swift/.build/debug/macosprox status vm-name
 
 # Check virtualization support
-./.build/debug/macosprox check
+src/swift/.build/debug/macosprox check
 
 # View VM MAC address and attempt IP discovery
-./.build/debug/macosprox start vm-name
+src/swift/.build/debug/macosprox start vm-name
 
 # Check if VM has IP address
 arp -a | grep "52:54:00"
